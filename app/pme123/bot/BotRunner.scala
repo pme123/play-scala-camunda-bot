@@ -5,12 +5,13 @@ import akka.actor.{ActorSystem, CoordinatedShutdown}
 import info.mukel.telegrambot4s.api.declarative.{Callbacks, Commands}
 import info.mukel.telegrambot4s.api.{Polling, TelegramBot}
 import info.mukel.telegrambot4s.methods.SendMessage
-import info.mukel.telegrambot4s.models.{ChatId, InlineKeyboardButton, InlineKeyboardMarkup}
+import info.mukel.telegrambot4s.models.{ChatId, ChatType, InlineKeyboardButton, InlineKeyboardMarkup}
 import javax.inject.{Inject, Singleton}
 import play.api.Logging
 import play.api.libs.json.{JsError, JsSuccess, Json}
-import pme123.bot.camunda.{CamundaService, CompleteTask, ExternalTask, FetchAndLock, Signal, Topic, Variable}
+import pme123.bot.camunda._
 
+import scala.collection.mutable
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.io.Source
@@ -23,7 +24,12 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
     with Polling // we use Polling
     with Callbacks
     with Commands { // and we want to listen to Commands
-  private val CLAIM_TAG = "CLAIM_IT"
+
+  private val CALLBACK_TAG = "CALLBACK"
+  private val camunda_group = "camunda_group"
+
+  private val chatIdMap: mutable.Map[BotTask.ChatUserOrGroup, BotTask.ChatId] =
+    mutable.Map(camunda_group -> -319641852, "pme123" -> 275469757)
 
   lazy val botToken: String = scala.util.Properties
     .envOrNone("BOT_TOKEN")
@@ -56,48 +62,66 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
   private def handleExternalTask(externalTask: ExternalTask): Unit = {
     Json.parse(externalTask.variables(botTaskTag).value).validate[BotTask] match {
       case JsSuccess(botTask, _) =>
-        sendMessage(botTask, externalTask.processInstanceId)
+        sendMessage(externalTask.id, botTask)
       case JsError(errors) =>
         logger.error(s"BotTask could not be parsed: $errors")
     }
   }
 
-  def sendMessage(botTask: BotTask, processInstanceId: String): Unit = {
+  def sendMessage(taskId: String, botTask: BotTask): Unit = {
     request(SendMessage(
-      botTask.chatId,
+     ChatId(chatIdMap.getOrElse(botTask.chatUserOrGroup, chatIdMap(camunda_group))),
       botTask.msg,
-      replyMarkup = Some(markupClaimed(processInstanceId))
+      replyMarkup = botTask.maybeCallback.map(markupClaimed(botTask.ident, _))
     ))
-    camundaService.completeTask(CompleteTask(processInstanceId, workerId, Map.empty))
+    camundaService.completeTask(CompleteTask(taskId, workerId, Map.empty))
   }
 
-  onCallbackWithTag(CLAIM_TAG) { implicit cbq => // listens on all callbacks that START with TAG
+  onCallbackWithTag(CALLBACK_TAG) { implicit cbq => // listens on all callbacks that START with TAG
     // Notification only shown to the user who pressed the button.
     ackCallback(None)
     // Or just ackCallback() - this is needed by Telegram!
 
     for {
-      processInstanceId <- cbq.data //the data is the callback identifier without the TAG (the count in our case)
+      botIdent <- cbq.data //the data is the callback identifier without the TAG (the count in our case)
       msg <- cbq.message
     } /* do */ {
       request(
         SendMessage(
-          ChatId(msg.source),
-          s"Thanks, ${cbq.from.firstName} claimed the issue: $processInstanceId!"
+          msg.source,
+          s"Thanks, ${cbq.from.firstName} claimed the issue!"
         )
       )
-      camundaService.signal(Signal("taskClaimed", Map("botTaskResult" -> Variable(Json.toJson(BotTaskResult(processInstanceId)).toString), "user" -> Variable(cbq.from.username.get))))
+      camundaService.signal(Signal("taskClaimed",
+        Map("botTaskResult" -> Variable(Json.toJson(BotTaskResult(botIdent, cbq.from)).toString))))
     }
 
   }
 
+  onCommand('register) { implicit msg =>
+    val result =
+      (msg.chat.`type` match {
+        case ChatType.Private =>
+          msg.chat.username
+        case ChatType.Group =>
+          msg.chat.title
+      }).map(chatIdMap.put(_, msg.chat.id))
 
-  private def markupClaimed(processInstanceId: String): InlineKeyboardMarkup = {
-    println("OK: " + CLAIM_TAG + processInstanceId)
-    InlineKeyboardMarkup.singleButton( // set a layout for the Button
-      InlineKeyboardButton.callbackData( // create the button into the layout
-        s"Please claim it", // text to show on the button (count of the times hitting the button and total request count)
-        CLAIM_TAG + processInstanceId)) // create a callback identifier
+    reply(
+      s"Hello ${msg.from.map(_.firstName).getOrElse("")}!\n" +
+        result.map(_ => "you were successful registered")
+          .getOrElse("Sorry, you need a Username to talk with me")
+    )
+    println(s"Registered Chats: $chatIdMap")
+  } // and reply with the personalized greeting
+
+
+  private def markupClaimed(botIdent: String, callback: Callback): InlineKeyboardMarkup = {
+    InlineKeyboardMarkup.singleColumn( // set a layout for the Button
+      callback.controls.map(c =>
+        InlineKeyboardButton.callbackData( // create the button into the layout
+          c.text, // text to show on the button (count of the times hitting the button and total request count)
+          CALLBACK_TAG + s"$botIdent--${c.ident}"))) // create a callback identifier
   }
 
   // Shut-down hook

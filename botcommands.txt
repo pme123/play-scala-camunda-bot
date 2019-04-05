@@ -1,1 +1,2 @@
-hello - Simple Hello World.
+register - Registers you to the Bot.
+mytasks - My pending Tasks.
