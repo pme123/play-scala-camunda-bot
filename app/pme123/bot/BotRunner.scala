@@ -11,7 +11,7 @@ import info.mukel.telegrambot4s.models._
 import javax.inject.{Inject, Named, Singleton}
 import play.api.Logging
 import play.api.libs.json.{JsError, JsNull, JsSuccess, Json}
-import pme123.bot.BotActor.{RegisterCallback, RegisterChatId, RequestCallback, RequestChatId}
+import pme123.bot.BotActor.{RegisterCallback, RegisterChatId, RequestCallback, RequestChatId, ResultCallback}
 import pme123.bot.camunda._
 
 import scala.concurrent.Future
@@ -74,8 +74,8 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
       replyMarkup <- markupClaimed(botTask)
       _ <- request(SendMessage(
         ChatId(chatId.toString),
-        botTask.msg,
-        replyMarkup = replyMarkup
+        botTask.msg + replyMarkup.map { case (id, _) => s" ($id)" }.getOrElse(""),
+        replyMarkup = replyMarkup.map { case (_, markup) => markup }
       ))
     } camundaService.completeTask(CompleteTask(taskId, workerId, Map.empty))
   }
@@ -86,13 +86,11 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
     // Or just ackCallback() - this is needed by Telegram!
 
     for {
-      callbackId <- cbq.data //the data is the callback identifier without the TAG (the count in our case)
+      callbackIdent <- cbq.data
       msg <- cbq.message
     } /* do */ {
-      println(s"request SENT")
       (for {
-        maybeRC <- (botActor ? RequestCallback(callbackId.toLong)).mapTo[Option[RegisterCallback]]
-        _ = println(s"REG_CALLBACK: $maybeRC")
+        maybeRC <- (botActor ? RequestCallback(callbackIdent)).mapTo[Option[ResultCallback]]
         _ <- maybeRC match {
           case Some(regCallback) =>
             val botTaskResult = BotTaskResult(regCallback.botTaskIdent, regCallback.callbackId, User(cbq.from))
@@ -106,13 +104,13 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
           SendMessage(
             msg.source,
             if (maybeRC.isDefined)
-              s"Thanks, ${cbq.from.firstName} claimed the issue ($callbackId)!"
+              s"Thanks, ${cbq.from.firstName} claimed the issue (${extractRequestId(callbackIdent)})!"
             else
-              s"Sorry, this issue ($callbackId) was claimed already!"
+              s"Sorry, this issue (${extractRequestId(callbackIdent)}) was claimed already!"
           )
         )
-      } yield (req))
-        .recover{
+      } yield req)
+        .recover {
           case throwable: Throwable =>
             logger.error("Problem", throwable)
         }
@@ -137,20 +135,23 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
       .getOrElse("Sorry, you need a Username to talk with me")
   }
 
-  private def markupClaimed(botTask: BotTask): Future[Option[InlineKeyboardMarkup]] = {
-    if (botTask.maybeCallback.isDefined) {
-      val callback = botTask.maybeCallback.get
-      Future.sequence(callback.controls.map { c =>
-        (botActor ? RegisterCallback(botTask.ident, c.ident, callback.signal))
-          .map(callbackStr =>
+  private def markupClaimed(botTask: BotTask): Future[Option[(Long, InlineKeyboardMarkup)]] = {
+    (botActor ? RegisterCallback(botTask)).mapTo[Option[(Long, Callback)]]
+      .map {
+        case Some((requestId, callback)) =>
+          Some(callback.controls.map { c =>
             InlineKeyboardButton.callbackData(
               c.text,
-              CALLBACK_TAG + callbackStr)
-          )
-      })
-        .map(InlineKeyboardMarkup.singleColumn)
-        .map(Some.apply)
-    } else Future.successful(None)
+              CALLBACK_TAG + createCallbackIdent(requestId, c.ident)
+            )
+          }).map(seq => (requestId, InlineKeyboardMarkup.singleColumn(seq)))
+        case None =>
+          None
+      }.recover{
+      case throwable: Throwable =>
+        logger.error("Problem", throwable)
+        None
+    }
   }
 
   // Shut-down hook
