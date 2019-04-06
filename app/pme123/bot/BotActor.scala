@@ -12,8 +12,7 @@ class BotActor extends Actor with Logging{
   private var chatIdMap: Map[BotTask.ChatUserOrGroup, BotTask.ChatId] =
     Map(camunda_group -> -319641852, "pme123" -> 275469757)
 
-  private var callbackId: Long = 0
-  private var callbackIdMap: Map[Long, RegisterCallback] = Map.empty
+  private var callbackIdMap: Map[String, RegisterCallback] = Map.empty
 
   def receive: Receive = {
     case RegisterChatId(chatUserOrGroup, chatId) =>
@@ -22,9 +21,8 @@ class BotActor extends Actor with Logging{
     case RequestChatId(chatUserOrGroup) =>
       sender ! chatIdMap.getOrElse(chatUserOrGroup, chatIdMap(camunda_group))
     case Some(rc: RegisterCallback) =>
-      callbackId += 1
-      callbackIdMap += (callbackId -> rc)
-      sender ! Some((callbackId, rc.callback))
+      callbackIdMap += (rc.botTaskIdent -> rc)
+      sender ! Some((rc.botTaskIdent, rc.callback))
     case rc:RequestCallback =>
       sender ! callbackIdMap.get(rc.requestId).map(reg =>
         ResultCallback(reg.botTaskIdent, reg.callback.signal, rc.callbackId)
@@ -56,7 +54,7 @@ object BotActor {
   }
 
   case class RequestCallback(callbackIdent: String) {
-    val requestId: Long = extractRequestId(callbackIdent)
+    val requestId: String = extractRequestId(callbackIdent)
     val callbackId: String = extractCallbackId(callbackIdent)
   }
 

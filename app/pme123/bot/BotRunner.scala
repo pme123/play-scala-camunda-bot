@@ -135,8 +135,8 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
       .getOrElse("Sorry, you need a Username to talk with me")
   }
 
-  private def markupClaimed(botTask: BotTask): Future[Option[(Long, InlineKeyboardMarkup)]] = {
-    (botActor ? RegisterCallback(botTask)).mapTo[Option[(Long, Callback)]]
+  private def markupClaimed(botTask: BotTask): Future[Option[(String, InlineKeyboardMarkup)]] = {
+    (botActor ? RegisterCallback(botTask)).mapTo[Option[(String, Callback)]]
       .map {
         case Some((requestId, callback)) =>
           Some(callback.controls.map { c =>

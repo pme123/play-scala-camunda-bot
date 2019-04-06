@@ -2,18 +2,18 @@ package pme123
 
 package object bot {
 
-  def createCallbackIdent(requestId: Long, callbackId: String) =
+  def createCallbackIdent(requestId: String, callbackId: String) =
     s"$requestId--$callbackId"
 
-  def extractCallbackIdent(callbackIdent: String) = {
+  def extractCallbackIdent(callbackIdent: String): (String, String) = {
     val requestIdStr :: callbackId :: Nil = callbackIdent.split("--").toList
-    (requestIdStr.toLong, callbackId)
+    (requestIdStr, callbackId)
   }
 
-  def extractCallbackId(callbackIdent: String) =
+  def extractCallbackId(callbackIdent: String): String =
     extractCallbackIdent(callbackIdent)._2
 
-  def extractRequestId(callbackIdent: String) =
+  def extractRequestId(callbackIdent: String): String =
     extractCallbackIdent(callbackIdent)._1
 
 
