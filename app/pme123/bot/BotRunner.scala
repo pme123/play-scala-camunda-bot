@@ -1,22 +1,25 @@
 package pme123.bot
 
 import akka.Done
-import akka.actor.{ActorSystem, CoordinatedShutdown}
+import akka.actor.{ActorRef, ActorSystem, CoordinatedShutdown}
+import akka.pattern.ask
+import akka.util.Timeout
 import info.mukel.telegrambot4s.api.declarative.{Callbacks, Commands}
 import info.mukel.telegrambot4s.api.{Polling, TelegramBot}
 import info.mukel.telegrambot4s.methods.SendMessage
-import info.mukel.telegrambot4s.models.{ChatId, ChatType, InlineKeyboardButton, InlineKeyboardMarkup}
-import javax.inject.{Inject, Singleton}
+import info.mukel.telegrambot4s.models._
+import javax.inject.{Inject, Named, Singleton}
 import play.api.Logging
-import play.api.libs.json.{JsError, JsSuccess, Json}
+import play.api.libs.json.{JsError, JsNull, JsSuccess, Json}
+import pme123.bot.BotActor.{RegisterCallback, RegisterChatId, RequestCallback, RequestChatId}
 import pme123.bot.camunda._
 
-import scala.collection.mutable
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.io.Source
 
 class TelegramBoundary @Inject()(actorSystem: ActorSystem,
+                                 @Named("bot-actor") botActor: ActorRef,
                                  camundaService: CamundaService,
                                  cs: CoordinatedShutdown,
                                 )
@@ -26,10 +29,7 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
     with Commands { // and we want to listen to Commands
 
   private val CALLBACK_TAG = "CALLBACK"
-  private val camunda_group = "camunda_group"
-
-  private val chatIdMap: mutable.Map[BotTask.ChatUserOrGroup, BotTask.ChatId] =
-    mutable.Map(camunda_group -> -319641852, "pme123" -> 275469757)
+  private implicit val timeout: Timeout = Timeout(1.second)
 
   lazy val botToken: String = scala.util.Properties
     .envOrNone("BOT_TOKEN")
@@ -69,12 +69,15 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
   }
 
   def sendMessage(taskId: String, botTask: BotTask): Unit = {
-    request(SendMessage(
-     ChatId(chatIdMap.getOrElse(botTask.chatUserOrGroup, chatIdMap(camunda_group))),
-      botTask.msg,
-      replyMarkup = botTask.maybeCallback.map(markupClaimed(botTask.ident, _))
-    ))
-    camundaService.completeTask(CompleteTask(taskId, workerId, Map.empty))
+    for {
+      chatId <- botActor ? RequestChatId(botTask.chatUserOrGroup)
+      replyMarkup <- markupClaimed(botTask)
+      _ <- request(SendMessage(
+        ChatId(chatId.toString),
+        botTask.msg,
+        replyMarkup = replyMarkup
+      ))
+    } camundaService.completeTask(CompleteTask(taskId, workerId, Map.empty))
   }
 
   onCallbackWithTag(CALLBACK_TAG) { implicit cbq => // listens on all callbacks that START with TAG
@@ -83,45 +86,71 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
     // Or just ackCallback() - this is needed by Telegram!
 
     for {
-      botIdent <- cbq.data //the data is the callback identifier without the TAG (the count in our case)
+      callbackId <- cbq.data //the data is the callback identifier without the TAG (the count in our case)
       msg <- cbq.message
     } /* do */ {
-      request(
-        SendMessage(
-          msg.source,
-          s"Thanks, ${cbq.from.firstName} claimed the issue!"
+      println(s"request SENT")
+      (for {
+        maybeRC <- (botActor ? RequestCallback(callbackId.toLong)).mapTo[Option[RegisterCallback]]
+        _ = println(s"REG_CALLBACK: $maybeRC")
+        _ <- maybeRC match {
+          case Some(regCallback) =>
+            val botTaskResult = BotTaskResult(regCallback.botTaskIdent, regCallback.callbackId, User(cbq.from))
+            camundaService.signal(Signal(regCallback.signal,
+              Map("botTaskResult" ->
+                Variable(Json.toJson(botTaskResult).toString)))
+            )
+          case None => Future.successful(JsNull)
+        }
+        req <- request(
+          SendMessage(
+            msg.source,
+            if (maybeRC.isDefined)
+              s"Thanks, ${cbq.from.firstName} claimed the issue ($callbackId)!"
+            else
+              s"Sorry, this issue ($callbackId) was claimed already!"
+          )
         )
-      )
-      camundaService.signal(Signal("taskClaimed",
-        Map("botTaskResult" -> Variable(Json.toJson(BotTaskResult(botIdent, cbq.from)).toString))))
+      } yield (req))
+        .recover{
+          case throwable: Throwable =>
+            logger.error("Problem", throwable)
+        }
     }
-
   }
 
   onCommand('register) { implicit msg =>
-    val result =
-      (msg.chat.`type` match {
-        case ChatType.Private =>
-          msg.chat.username
-        case ChatType.Group =>
-          msg.chat.title
-      }).map(chatIdMap.put(_, msg.chat.id))
-
-    reply(
-      s"Hello ${msg.from.map(_.firstName).getOrElse("")}!\n" +
-        result.map(_ => "you were successful registered")
-          .getOrElse("Sorry, you need a Username to talk with me")
-    )
-    println(s"Registered Chats: $chatIdMap")
+    for {
+      result <- registerGroupOrUser(msg)
+      _ <- reply(s"Hello ${msg.from.map(_.firstName).getOrElse("")}!\n" + result)
+    } ()
   } // and reply with the personalized greeting
 
+  private def registerGroupOrUser(msg: Message) = {
+    (msg.chat.`type` match {
+      case ChatType.Private =>
+        msg.chat.username
+      case ChatType.Group =>
+        msg.chat.title
+    }).map(botActor ? RegisterChatId(_, msg.chat.id))
+      .map(_ => "you were successful registered")
+      .getOrElse("Sorry, you need a Username to talk with me")
+  }
 
-  private def markupClaimed(botIdent: String, callback: Callback): InlineKeyboardMarkup = {
-    InlineKeyboardMarkup.singleColumn( // set a layout for the Button
-      callback.controls.map(c =>
-        InlineKeyboardButton.callbackData( // create the button into the layout
-          c.text, // text to show on the button (count of the times hitting the button and total request count)
-          CALLBACK_TAG + s"$botIdent--${c.ident}"))) // create a callback identifier
+  private def markupClaimed(botTask: BotTask): Future[Option[InlineKeyboardMarkup]] = {
+    if (botTask.maybeCallback.isDefined) {
+      val callback = botTask.maybeCallback.get
+      Future.sequence(callback.controls.map { c =>
+        (botActor ? RegisterCallback(botTask.ident, c.ident, callback.signal))
+          .map(callbackStr =>
+            InlineKeyboardButton.callbackData(
+              c.text,
+              CALLBACK_TAG + callbackStr)
+          )
+      })
+        .map(InlineKeyboardMarkup.singleColumn)
+        .map(Some.apply)
+    } else Future.successful(None)
   }
 
   // Shut-down hook

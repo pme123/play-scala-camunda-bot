@@ -1,7 +1,7 @@
 package pme123.bot.camunda
 
 import javax.inject.Inject
-import play.api.libs.json.{JsValue, Json}
+import play.api.libs.json.{JsNull, JsValue, Json}
 import play.api.libs.ws.{WSAuthScheme, WSClient}
 
 import scala.concurrent.ExecutionContext
@@ -29,7 +29,10 @@ class CamundaService @Inject()(ws: WSClient)
     ws.url(s"$camundaUrl/$path")
       .withAuth("demo", "demo", WSAuthScheme.BASIC)
       .post(body)
-      .map(_.json)
+      .map{
+        case b if b.body.isEmpty => JsNull
+        case b => b.json
+      }
   }
 }
 

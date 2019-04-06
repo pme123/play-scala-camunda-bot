@@ -13,7 +13,7 @@
     </bpmn:startEvent>
     <bpmn:sequenceFlow id="SequenceFlow_1tevy03" sourceRef="StartEvent_1" targetRef="ServiceTask_InformPeople" />
     <bpmn:endEvent id="EndEvent_16t6vi6">
-      <bpmn:incoming>SequenceFlow_0xbbczh</bpmn:incoming>
+      <bpmn:incoming>SequenceFlow_1857nfb</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:serviceTask id="ServiceTask_InformPeople" name="Inform People" camunda:type="external" camunda:topic="pme.telegram.demo">
       <bpmn:extensionElements>
@@ -24,6 +24,7 @@ ident: execution.getProcessInstanceId(),
 chatUserOrGroup:"camunda_group",
 msg: issue,
 maybeCallback:{
+  signal: "taskClaimed",
   controls:[{
    ident:"claimed",
    text:"I claim the issue"}
@@ -38,21 +39,7 @@ S(JSON.stringify(botTaskJson));</camunda:script>
       <bpmn:incoming>SequenceFlow_1tevy03</bpmn:incoming>
       <bpmn:outgoing>SequenceFlow_0v1rpjy</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:userTask id="Task_1p0b7cf" name="Displays Claimer">
-      <bpmn:extensionElements>
-        <camunda:formData>
-          <camunda:formField id="botTaskResult" label="Issue Claimed By" type="string">
-            <camunda:validation>
-              <camunda:constraint name="readonly" config="true" />
-            </camunda:validation>
-          </camunda:formField>
-        </camunda:formData>
-      </bpmn:extensionElements>
-      <bpmn:incoming>SequenceFlow_0dmx7xl</bpmn:incoming>
-      <bpmn:outgoing>SequenceFlow_1gupaxa</bpmn:outgoing>
-    </bpmn:userTask>
     <bpmn:sequenceFlow id="SequenceFlow_0v1rpjy" sourceRef="ServiceTask_InformPeople" targetRef="IntermediateThrowEvent_1b5kgjm" />
-    <bpmn:sequenceFlow id="SequenceFlow_1gupaxa" sourceRef="Task_1p0b7cf" targetRef="ServiceTask_1eyyxlh" />
     <bpmn:sequenceFlow id="SequenceFlow_0aqhi3e" sourceRef="IntermediateThrowEvent_1b5kgjm" targetRef="ExclusiveGateway_0w1wsjz" />
     <bpmn:intermediateCatchEvent id="IntermediateThrowEvent_1b5kgjm">
       <bpmn:incoming>SequenceFlow_0v1rpjy</bpmn:incoming>
@@ -60,25 +47,22 @@ S(JSON.stringify(botTaskJson));</camunda:script>
       <bpmn:outgoing>SequenceFlow_0aqhi3e</bpmn:outgoing>
       <bpmn:signalEventDefinition signalRef="taskClaimed" />
     </bpmn:intermediateCatchEvent>
-    <bpmn:exclusiveGateway id="ExclusiveGateway_0w1wsjz">
+    <bpmn:exclusiveGateway id="ExclusiveGateway_0w1wsjz" default="SequenceFlow_1owdr10">
       <bpmn:incoming>SequenceFlow_0aqhi3e</bpmn:incoming>
       <bpmn:outgoing>SequenceFlow_0dmx7xl</bpmn:outgoing>
       <bpmn:outgoing>SequenceFlow_1owdr10</bpmn:outgoing>
     </bpmn:exclusiveGateway>
-    <bpmn:sequenceFlow id="SequenceFlow_0dmx7xl" sourceRef="ExclusiveGateway_0w1wsjz" targetRef="Task_1p0b7cf">
+    <bpmn:sequenceFlow id="SequenceFlow_0dmx7xl" sourceRef="ExclusiveGateway_0w1wsjz" targetRef="ServiceTask_1eyyxlh">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" language="JavaScript">var json = S(execution.getVariable('botTaskResult'));
 
 var botTaskIdent = json.prop("botTaskIdent");
 
-(botTaskIdent.value() ===  execution.getProcessInstanceId())</bpmn:conditionExpression>
-    </bpmn:sequenceFlow>
-    <bpmn:sequenceFlow id="SequenceFlow_1owdr10" sourceRef="ExclusiveGateway_0w1wsjz" targetRef="IntermediateThrowEvent_1b5kgjm">
-      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" language="JavaScript">var json = S(execution.getVariable('botTaskResult'));
+var callbackIdent = json.prop("callbackIdent");
 
-var botTaskIdent = json.prop("botTaskIdent");
-
-(botTaskIdent.value() !==  execution.getProcessInstanceId())</bpmn:conditionExpression>
+(botTaskIdent.value() ===  execution.getProcessInstanceId() &amp;&amp;
+  callbackIdent.value() === "claimed")</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="SequenceFlow_1owdr10" sourceRef="ExclusiveGateway_0w1wsjz" targetRef="IntermediateThrowEvent_1b5kgjm" />
     <bpmn:serviceTask id="ServiceTask_1eyyxlh" name="Wait for Work done" camunda:type="external" camunda:topic="pme.telegram.demo">
       <bpmn:extensionElements>
         <camunda:inputOutput>
@@ -97,8 +81,9 @@ ident: execution.getProcessInstanceId(),
 chatUserOrGroup: username.value(),
 msg: "Just confirm when it's done.",
 maybeCallback:{
+    signal: "taskDone",
   controls:[{
-   ident:"confirm",
+   ident:"done",
    text:"Issue is done"}
   ]
 }
@@ -108,16 +93,33 @@ S(JSON.stringify(botTaskJson));</camunda:script>
           </camunda:inputParameter>
         </camunda:inputOutput>
       </bpmn:extensionElements>
-      <bpmn:incoming>SequenceFlow_1gupaxa</bpmn:incoming>
+      <bpmn:incoming>SequenceFlow_0dmx7xl</bpmn:incoming>
       <bpmn:outgoing>SequenceFlow_1nquxop</bpmn:outgoing>
     </bpmn:serviceTask>
     <bpmn:sequenceFlow id="SequenceFlow_1nquxop" sourceRef="ServiceTask_1eyyxlh" targetRef="IntermediateCatchEvent_09gp34n" />
-    <bpmn:sequenceFlow id="SequenceFlow_0xbbczh" sourceRef="IntermediateCatchEvent_09gp34n" targetRef="EndEvent_16t6vi6" />
+    <bpmn:sequenceFlow id="SequenceFlow_0xbbczh" sourceRef="IntermediateCatchEvent_09gp34n" targetRef="ExclusiveGateway_1e0mdl6" />
     <bpmn:intermediateCatchEvent id="IntermediateCatchEvent_09gp34n">
       <bpmn:incoming>SequenceFlow_1nquxop</bpmn:incoming>
+      <bpmn:incoming>SequenceFlow_1h4hw6h</bpmn:incoming>
       <bpmn:outgoing>SequenceFlow_0xbbczh</bpmn:outgoing>
       <bpmn:signalEventDefinition signalRef="taskDone" />
     </bpmn:intermediateCatchEvent>
+    <bpmn:exclusiveGateway id="ExclusiveGateway_1e0mdl6" default="SequenceFlow_1h4hw6h">
+      <bpmn:incoming>SequenceFlow_0xbbczh</bpmn:incoming>
+      <bpmn:outgoing>SequenceFlow_1857nfb</bpmn:outgoing>
+      <bpmn:outgoing>SequenceFlow_1h4hw6h</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="SequenceFlow_1857nfb" sourceRef="ExclusiveGateway_1e0mdl6" targetRef="EndEvent_16t6vi6">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" language="JavaScript">var json = S(execution.getVariable('botTaskResult'));
+
+var botTaskIdent = json.prop("botTaskIdent");
+
+var callbackIdent = json.prop("callbackIdent");
+
+(botTaskIdent.value() ===  execution.getProcessInstanceId() &amp;&amp;
+  callbackIdent.value() === "done")</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="SequenceFlow_1h4hw6h" sourceRef="ExclusiveGateway_1e0mdl6" targetRef="IntermediateCatchEvent_09gp34n" />
   </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="TelegramIntegationProcess">
@@ -129,21 +131,14 @@ S(JSON.stringify(botTaskJson));</camunda:script>
         <di:waypoint x="244" y="120" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNShape id="EndEvent_16t6vi6_di" bpmnElement="EndEvent_16t6vi6">
-        <dc:Bounds x="1051" y="102" width="36" height="36" />
+        <dc:Bounds x="917" y="102" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="ServiceTask_0w5qvid_di" bpmnElement="ServiceTask_InformPeople">
         <dc:Bounds x="244" y="80" width="100" height="80" />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="UserTask_17z5usm_di" bpmnElement="Task_1p0b7cf">
-        <dc:Bounds x="579" y="80" width="100" height="80" />
-      </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="SequenceFlow_0v1rpjy_di" bpmnElement="SequenceFlow_0v1rpjy">
         <di:waypoint x="344" y="120" />
         <di:waypoint x="410" y="120" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="SequenceFlow_1gupaxa_di" bpmnElement="SequenceFlow_1gupaxa">
-        <di:waypoint x="679" y="120" />
-        <di:waypoint x="761" y="120" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="SequenceFlow_0aqhi3e_di" bpmnElement="SequenceFlow_0aqhi3e">
         <di:waypoint x="446" y="120" />
@@ -157,28 +152,41 @@ S(JSON.stringify(botTaskJson));</camunda:script>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="SequenceFlow_0dmx7xl_di" bpmnElement="SequenceFlow_0dmx7xl">
         <di:waypoint x="537" y="120" />
-        <di:waypoint x="579" y="120" />
+        <di:waypoint x="582" y="120" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="SequenceFlow_1owdr10_di" bpmnElement="SequenceFlow_1owdr10">
         <di:waypoint x="512" y="145" />
-        <di:waypoint x="512" y="248" />
-        <di:waypoint x="428" y="248" />
+        <di:waypoint x="512" y="167" />
+        <di:waypoint x="428" y="167" />
         <di:waypoint x="428" y="138" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNShape id="ServiceTask_1eyyxlh_di" bpmnElement="ServiceTask_1eyyxlh">
-        <dc:Bounds x="761" y="80" width="100" height="80" />
+        <dc:Bounds x="582" y="80" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="SequenceFlow_1nquxop_di" bpmnElement="SequenceFlow_1nquxop">
-        <di:waypoint x="861" y="120" />
-        <di:waypoint x="915" y="120" />
+        <di:waypoint x="682" y="120" />
+        <di:waypoint x="725" y="120" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="SequenceFlow_0xbbczh_di" bpmnElement="SequenceFlow_0xbbczh">
-        <di:waypoint x="951" y="120" />
-        <di:waypoint x="1051" y="120" />
+        <di:waypoint x="761" y="120" />
+        <di:waypoint x="796" y="120" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNShape id="IntermediateCatchEvent_1f1lgdr_di" bpmnElement="IntermediateCatchEvent_09gp34n">
-        <dc:Bounds x="915" y="102" width="36" height="36" />
+        <dc:Bounds x="725" y="102" width="36" height="36" />
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ExclusiveGateway_1e0mdl6_di" bpmnElement="ExclusiveGateway_1e0mdl6" isMarkerVisible="true">
+        <dc:Bounds x="796" y="95" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="SequenceFlow_1857nfb_di" bpmnElement="SequenceFlow_1857nfb">
+        <di:waypoint x="846" y="120" />
+        <di:waypoint x="917" y="120" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SequenceFlow_1h4hw6h_di" bpmnElement="SequenceFlow_1h4hw6h">
+        <di:waypoint x="821" y="145" />
+        <di:waypoint x="821" y="167" />
+        <di:waypoint x="743" y="167" />
+        <di:waypoint x="743" y="138" />
+      </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>

@@ -16,7 +16,7 @@ object BotTask {
   implicit val jsonFormat: OFormat[BotTask] = Json.format[BotTask]
 }
 
-case class Callback(controls: Seq[Control]) {
+case class Callback(signal: String, controls: Seq[Control]) {
 
 }
 
@@ -38,13 +38,7 @@ case class BotTaskResult(botTaskIdent: String, callbackIdent: String, from: User
 
 object BotTaskResult {
 
-  def apply(callbackIdent: String, from: TelegramUser): BotTaskResult = {
-    val btIdent :: cIdent :: Nil = callbackIdent.split("--").toList
-    BotTaskResult(btIdent, cIdent, User(from))
-  }
-
-
-  implicit val jsonFormat: OFormat[BotTaskResult] = Json.format[BotTaskResult]
+    implicit val jsonFormat: OFormat[BotTaskResult] = Json.format[BotTaskResult]
 }
 
 case class User(id: Int, firstName: String, lastName: Option[String], username: Option[String]) {
