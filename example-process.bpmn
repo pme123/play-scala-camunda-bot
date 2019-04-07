@@ -14,7 +14,7 @@
     </bpmn:startEvent>
     <bpmn:sequenceFlow id="SequenceFlow_1tevy03" sourceRef="StartEvent_1" targetRef="ServiceTask_InformPeople" />
     <bpmn:endEvent id="EndEvent_16t6vi6">
-      <bpmn:incoming>SequenceFlow_1857nfb</bpmn:incoming>
+      <bpmn:incoming>SequenceFlow_1tvwa73</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:serviceTask id="ServiceTask_InformPeople" name="Inform People" camunda:type="external" camunda:topic="pme.telegram.demo">
       <bpmn:extensionElements>
@@ -23,12 +23,14 @@
             <camunda:script scriptFormat="JavaScript">var botTaskJson = {
 ident: issueIdent,
 chatUserOrGroup:"camunda_group",
-msg: issue,
+msg: issueIdent + ": "+ issue,
 maybeCallback:{
   signal: "taskClaimed",
   controls:[{
    ident:"claimed",
-   text:"I claim the issue"}
+   text:"I claim the issue",
+   response: "Thanks, {{username}} claimed the issue {{botTaskIdent}}!"
+}
   ]
 }
 }
@@ -54,7 +56,7 @@ S(JSON.stringify(botTaskJson));</camunda:script>
       <bpmn:outgoing>SequenceFlow_0dmx7xl</bpmn:outgoing>
       <bpmn:outgoing>SequenceFlow_1owdr10</bpmn:outgoing>
     </bpmn:exclusiveGateway>
-    <bpmn:sequenceFlow id="SequenceFlow_0dmx7xl" sourceRef="ExclusiveGateway_0w1wsjz" targetRef="ServiceTask_1eyyxlh">
+    <bpmn:sequenceFlow id="SequenceFlow_0dmx7xl" sourceRef="ExclusiveGateway_0w1wsjz" targetRef="ServiceTask_WaitForWorkDone">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" language="JavaScript">var json = S(execution.getVariable('botTaskResult'));
 
 var botTaskIdent = json.prop("botTaskIdent");
@@ -65,7 +67,7 @@ var callbackIdent = json.prop("callbackIdent");
   callbackIdent.value() === "claimed")</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="SequenceFlow_1owdr10" sourceRef="ExclusiveGateway_0w1wsjz" targetRef="IntermediateThrowEvent_1b5kgjm" />
-    <bpmn:serviceTask id="ServiceTask_1eyyxlh" name="Wait for Work done" camunda:type="external" camunda:topic="pme.telegram.demo">
+    <bpmn:serviceTask id="ServiceTask_WaitForWorkDone" name="Wait for Work done" camunda:type="external" camunda:topic="pme.telegram.demo">
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="botTask">
@@ -86,9 +88,11 @@ maybeCallback:{
     signal: "taskDone",
   controls:[{
    ident:"done",
-   text:"Issue is done"},{
+   text:"Issue is done",
+   response: "Thanks, for solving {{botTaskIdent}}!"},{
    ident:"help",
-   text:"I need help"}
+   text:"I need help",
+   response: "Ok, the issue {{botTaskIdent}} is moved back to the Group!"}
   ]
 }
 }
@@ -100,7 +104,7 @@ S(JSON.stringify(botTaskJson));</camunda:script>
       <bpmn:incoming>SequenceFlow_0dmx7xl</bpmn:incoming>
       <bpmn:outgoing>SequenceFlow_1nquxop</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:sequenceFlow id="SequenceFlow_1nquxop" sourceRef="ServiceTask_1eyyxlh" targetRef="IntermediateCatchEvent_09gp34n" />
+    <bpmn:sequenceFlow id="SequenceFlow_1nquxop" sourceRef="ServiceTask_WaitForWorkDone" targetRef="IntermediateCatchEvent_09gp34n" />
     <bpmn:sequenceFlow id="SequenceFlow_0xbbczh" sourceRef="IntermediateCatchEvent_09gp34n" targetRef="ExclusiveGateway_1e0mdl6" />
     <bpmn:intermediateCatchEvent id="IntermediateCatchEvent_09gp34n">
       <bpmn:incoming>SequenceFlow_1nquxop</bpmn:incoming>
@@ -114,7 +118,7 @@ S(JSON.stringify(botTaskJson));</camunda:script>
       <bpmn:outgoing>SequenceFlow_1h4hw6h</bpmn:outgoing>
       <bpmn:outgoing>SequenceFlow_0z2c1fb</bpmn:outgoing>
     </bpmn:exclusiveGateway>
-    <bpmn:sequenceFlow id="SequenceFlow_1857nfb" sourceRef="ExclusiveGateway_1e0mdl6" targetRef="EndEvent_16t6vi6">
+    <bpmn:sequenceFlow id="SequenceFlow_1857nfb" sourceRef="ExclusiveGateway_1e0mdl6" targetRef="ServiceTask_IssueSolved">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" language="JavaScript">var json = S(execution.getVariable('botTaskResult'));
 
 var botTaskIdent = json.prop("botTaskIdent");
@@ -125,19 +129,26 @@ var callbackIdent = json.prop("callbackIdent");
   callbackIdent.value() === "done")</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="SequenceFlow_1h4hw6h" sourceRef="ExclusiveGateway_1e0mdl6" targetRef="IntermediateCatchEvent_09gp34n" />
-    <bpmn:serviceTask id="ServiceTask_1tpche8" name="Inform People" camunda:type="external" camunda:topic="pme.telegram.demo">
+    <bpmn:serviceTask id="ServiceTask_HelpNeeded" name="Help needed" camunda:type="external" camunda:topic="pme.telegram.demo">
       <bpmn:extensionElements>
         <camunda:inputOutput>
           <camunda:inputParameter name="botTask">
-            <camunda:script scriptFormat="JavaScript">var botTaskJson = {
+            <camunda:script scriptFormat="JavaScript">var json = S(execution.getVariable('botTaskResult'));
+
+var from = json.prop("from");
+var username = from.prop("username");
+
+var botTaskJson = {
 ident: issueIdent,
 chatUserOrGroup:"camunda_group",
-msg: "I need help with: '"+ issue+"'",
+msg: username.value() + " needs help with "+ issueIdent,
 maybeCallback:{
   signal: "taskClaimed",
   controls:[{
    ident:"claimed",
-   text:"I claim the issue"}
+   text:"I claim the issue",
+   response: "Thanks, {{username}} claimed the issue {{botTaskIdent}}!"
+}
   ]
 }
 }
@@ -149,8 +160,8 @@ S(JSON.stringify(botTaskJson));</camunda:script>
       <bpmn:incoming>SequenceFlow_0z2c1fb</bpmn:incoming>
       <bpmn:outgoing>SequenceFlow_1alox9o</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:sequenceFlow id="SequenceFlow_1alox9o" sourceRef="ServiceTask_1tpche8" targetRef="IntermediateThrowEvent_1b5kgjm" />
-    <bpmn:sequenceFlow id="SequenceFlow_0z2c1fb" sourceRef="ExclusiveGateway_1e0mdl6" targetRef="ServiceTask_1tpche8">
+    <bpmn:sequenceFlow id="SequenceFlow_1alox9o" sourceRef="ServiceTask_HelpNeeded" targetRef="IntermediateThrowEvent_1b5kgjm" />
+    <bpmn:sequenceFlow id="SequenceFlow_0z2c1fb" sourceRef="ExclusiveGateway_1e0mdl6" targetRef="ServiceTask_HelpNeeded">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" language="JavaScript">var json = S(execution.getVariable('botTaskResult'));
 
 var botTaskIdent = json.prop("botTaskIdent");
@@ -160,6 +171,29 @@ var callbackIdent = json.prop("callbackIdent");
 (botTaskIdent.value() ===  issueIdent &amp;&amp;
   callbackIdent.value() === "help")</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
+    <bpmn:serviceTask id="ServiceTask_IssueSolved" name="Issue Solved" camunda:type="external" camunda:topic="pme.telegram.demo">
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="botTask">
+            <camunda:script scriptFormat="JavaScript">var json = S(execution.getVariable('botTaskResult'));
+
+var from = json.prop("from");
+var username = from.prop("username");
+
+var botTaskJson = {
+ident: issueIdent,
+chatUserOrGroup:"camunda_group",
+msg: username.value() + " solved "+ issueIdent,
+}
+
+S(JSON.stringify(botTaskJson));</camunda:script>
+          </camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>SequenceFlow_1857nfb</bpmn:incoming>
+      <bpmn:outgoing>SequenceFlow_1tvwa73</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="SequenceFlow_1tvwa73" sourceRef="ServiceTask_IssueSolved" targetRef="EndEvent_16t6vi6" />
   </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="TelegramIntegationProcess">
@@ -171,7 +205,7 @@ var callbackIdent = json.prop("callbackIdent");
         <di:waypoint x="244" y="120" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNShape id="EndEvent_16t6vi6_di" bpmnElement="EndEvent_16t6vi6">
-        <dc:Bounds x="917" y="102" width="36" height="36" />
+        <dc:Bounds x="1062" y="102" width="36" height="36" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="ServiceTask_0w5qvid_di" bpmnElement="ServiceTask_InformPeople">
         <dc:Bounds x="244" y="80" width="100" height="80" />
@@ -200,7 +234,7 @@ var callbackIdent = json.prop("callbackIdent");
         <di:waypoint x="428" y="167" />
         <di:waypoint x="428" y="138" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNShape id="ServiceTask_1eyyxlh_di" bpmnElement="ServiceTask_1eyyxlh">
+      <bpmndi:BPMNShape id="ServiceTask_1eyyxlh_di" bpmnElement="ServiceTask_WaitForWorkDone">
         <dc:Bounds x="582" y="80" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="SequenceFlow_1nquxop_di" bpmnElement="SequenceFlow_1nquxop">
@@ -219,7 +253,7 @@ var callbackIdent = json.prop("callbackIdent");
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="SequenceFlow_1857nfb_di" bpmnElement="SequenceFlow_1857nfb">
         <di:waypoint x="846" y="120" />
-        <di:waypoint x="917" y="120" />
+        <di:waypoint x="922" y="120" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="SequenceFlow_1h4hw6h_di" bpmnElement="SequenceFlow_1h4hw6h">
         <di:waypoint x="821" y="145" />
@@ -227,7 +261,7 @@ var callbackIdent = json.prop("callbackIdent");
         <di:waypoint x="743" y="167" />
         <di:waypoint x="743" y="138" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNShape id="ServiceTask_1tpche8_di" bpmnElement="ServiceTask_1tpche8">
+      <bpmndi:BPMNShape id="ServiceTask_1tpche8_di" bpmnElement="ServiceTask_HelpNeeded">
         <dc:Bounds x="582" y="-48" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="SequenceFlow_1alox9o_di" bpmnElement="SequenceFlow_1alox9o">
@@ -239,6 +273,13 @@ var callbackIdent = json.prop("callbackIdent");
         <di:waypoint x="821" y="95" />
         <di:waypoint x="821" y="-8" />
         <di:waypoint x="682" y="-8" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="ServiceTask_1nonygm_di" bpmnElement="ServiceTask_IssueSolved">
+        <dc:Bounds x="922" y="80" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="SequenceFlow_1tvwa73_di" bpmnElement="SequenceFlow_1tvwa73">
+        <di:waypoint x="1022" y="120" />
+        <di:waypoint x="1062" y="120" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

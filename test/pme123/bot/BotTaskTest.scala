@@ -7,7 +7,7 @@ class BotTaskTest extends FunSuite {
 
   test("Json un-/marshalling") {
     val expected = BotTask("myIdent", "-319641852", "Hello there",
-      Some(Callback("signal", Seq(Control("claimed", "I claim the issue")))))
+      Some(Callback("signal", Seq(Control("claimed", "I claim the issue", "thanks for it")))))
     val json = Json.toJson(expected)
     println(json)
     assert(expected == json.validate[BotTask].get)

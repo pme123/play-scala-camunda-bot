@@ -74,7 +74,7 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
       replyMarkup <- markupClaimed(botTask)
       _ <- request(SendMessage(
         ChatId(chatId.toString),
-        botTask.msg + replyMarkup.map { case (id, _) => s" ($id)" }.getOrElse(""),
+        botTask.msg,
         replyMarkup = replyMarkup.map { case (_, markup) => markup }
       ))
     } camundaService.completeTask(CompleteTask(taskId, workerId, Map.empty))
@@ -82,7 +82,7 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
 
   onCallbackWithTag(CALLBACK_TAG) { implicit cbq => // listens on all callbacks that START with TAG
     // Notification only shown to the user who pressed the button.
-    ackCallback(None)
+    ackCallback(Some("processing..."))
     // Or just ackCallback() - this is needed by Telegram!
 
     for {
@@ -103,11 +103,12 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
         req <- request(
           SendMessage(
             msg.source,
-            if (maybeRC.isDefined)
-              s"Thanks, ${cbq.from.firstName} claimed the issue (${extractRequestId(callbackIdent)})!"
-            else
-              s"Sorry, this issue (${extractRequestId(callbackIdent)}) was claimed already!"
-          )
+            maybeRC match {
+              case Some(regCallback: ResultCallback) =>
+                TextTemplateEngine.generate(cbq, regCallback)
+              case None =>
+                s"Sorry, this issue (${extractRequestId(callbackIdent)}) was claimed already!"
+            })
         )
       } yield req)
         .recover {

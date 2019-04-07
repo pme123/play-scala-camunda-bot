@@ -3,7 +3,7 @@ package pme123.bot
 import akka.actor.Actor
 import play.api.Logging
 
-class BotActor extends Actor with Logging{
+class BotActor extends Actor with Logging {
 
   import BotActor._
 
@@ -23,15 +23,19 @@ class BotActor extends Actor with Logging{
     case Some(rc: RegisterCallback) =>
       callbackIdMap += (rc.botTaskIdent -> rc)
       sender ! Some((rc.botTaskIdent, rc.callback))
-    case rc:RequestCallback =>
-      sender ! callbackIdMap.get(rc.requestId).map(reg =>
-        ResultCallback(reg.botTaskIdent, reg.callback.signal, rc.callbackId)
-      )
+    case rc: RequestCallback =>
+      sender !
+        (for {
+          reg <- callbackIdMap.get(rc.requestId)
+          control <- reg.callback.controls.find(_.ident == rc.callbackId)
+        } yield
+          ResultCallback(reg.botTaskIdent, reg.callback.signal, control.ident, control.response))
+
       callbackIdMap = callbackIdMap.filterNot(_._1 == rc.requestId)
     case None =>
       sender ! None
     case other =>
-    logger.info(s"Unhandled message: $other")
+      logger.info(s"Unhandled message: $other")
   }
 }
 
@@ -58,6 +62,6 @@ object BotActor {
     val callbackId: String = extractCallbackId(callbackIdent)
   }
 
-  case class ResultCallback(botTaskIdent: String, signal: String, callbackId: String)
+  case class ResultCallback(botTaskIdent: String, signal: String, callbackId: String, response: String)
 
 }

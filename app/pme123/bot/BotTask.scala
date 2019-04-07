@@ -24,7 +24,7 @@ object Callback {
   implicit val jsonFormat: OFormat[Callback] = Json.format[Callback]
 }
 
-case class Control(ident: String, text: String) {
+case class Control(ident: String, text: String, response: String) {
 
 }
 
@@ -38,17 +38,17 @@ case class BotTaskResult(botTaskIdent: String, callbackIdent: String, from: User
 
 object BotTaskResult {
 
-    implicit val jsonFormat: OFormat[BotTaskResult] = Json.format[BotTaskResult]
+  implicit val jsonFormat: OFormat[BotTaskResult] = Json.format[BotTaskResult]
 }
 
-case class User(id: Int, firstName: String, lastName: Option[String], username: Option[String]) {
+case class User(id: Int, firstName: String, lastName: Option[String], username: String) {
 
 }
 
 object User {
 
   def apply(botUser: TelegramUser): User =
-    User(botUser.id, botUser.firstName, botUser.lastName, botUser.username)
+    User(botUser.id, botUser.firstName, botUser.lastName, botUser.username.getOrElse("--"))
 
   implicit val jsonFormat: OFormat[User] = Json.format[User]
 }
