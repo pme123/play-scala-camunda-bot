@@ -83,7 +83,7 @@ system.out.println("username: "+username.value() );
 var botTaskJson = {
 ident: issueIdent,
 chatUserOrGroup: username.value(),
-msg: "Just confirm when it's done.",
+msg: "Just confirm when " + issueIdent + " is done.",
 maybeCallback:{
     signal: "taskDone",
   controls:[{

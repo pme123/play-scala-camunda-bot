@@ -53,3 +53,22 @@ object User {
   implicit val jsonFormat: OFormat[User] = Json.format[User]
 }
 
+case class Receipt(value: Map[String, Option[Throwable]]) {
+  self =>
+  final def |+|(that: Receipt): Receipt =
+    Receipt(self.value ++ that.value)
+
+  final def succeeded: Int = value.values.filter(_ == None).size
+
+  final def failures: List[Throwable] =
+    value.values.collect { case Some(t) => t }.toList
+}
+
+object Receipt {
+  def empty: Receipt = Receipt(Map())
+
+  def success(id: String): Receipt = Receipt(Map(id -> None))
+
+  def failure(id: String, t: Throwable): Receipt =
+    Receipt(Map(id -> Some(t)))
+}

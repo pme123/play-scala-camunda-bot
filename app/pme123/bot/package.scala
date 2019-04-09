@@ -1,6 +1,13 @@
 package pme123
 
+import akka.util.Timeout
+import scala.concurrent.duration._
+
 package object bot {
+
+  implicit val timeout: Timeout = Timeout(1.second)
+
+  val CALLBACK_TAG = "CALLBACK"
 
   def createCallbackIdent(requestId: String, callbackId: String) =
     s"$requestId--$callbackId"
