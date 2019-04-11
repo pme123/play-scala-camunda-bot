@@ -1,9 +1,8 @@
-package pme123.bot
+package pme123.bot.entity
 
 import play.api.libs.json.{Json, OFormat}
 
-package object camunda {
-
+object camunda {
   case class FetchAndLock(
                            workerId: String,
                            topics: List[Topic],
@@ -80,5 +79,4 @@ package object camunda {
 
     implicit val jsonFormat: OFormat[Signal] = Json.format[Signal]
   }
-
 }

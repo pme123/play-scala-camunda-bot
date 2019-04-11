@@ -1,22 +1,23 @@
-package pme123.bot
+package pme123.bot.boundary
 
 import akka.Done
-import akka.actor.{ActorRef, ActorSystem, CoordinatedShutdown}
-import akka.pattern.ask
+import akka.actor.{ActorSystem, CoordinatedShutdown}
 import info.mukel.telegrambot4s.api.declarative.{Callbacks, Commands}
 import info.mukel.telegrambot4s.api.{Polling, RequestHandler, TelegramBot}
-import info.mukel.telegrambot4s.models._
-import javax.inject.{Inject, Named, Singleton}
+import info.mukel.telegrambot4s.models.{ChatType, Message}
+import javax.inject.{Inject, Singleton}
 import org.fusesource.scalate.util.Logging
-import pme123.bot.BotActor.RegisterChatId
-import pme123.bot.camunda._
-import scalaz.zio.{DefaultRuntime, UIO, ZIO}
+import pme123.bot.control._
+import pme123.bot.entity.bot
+import pme123.bot.entity.bot._
+import pme123.bot.entity.camunda._
+import scalaz.zio.{DefaultRuntime, ZIO}
 
 import scala.concurrent.duration._
 import scala.io.Source
 
 class TelegramBoundary @Inject()(actorSystem: ActorSystem,
-                                 @Named("bot-actor") botActor: ActorRef,
+                                 registerService: RegisterService,
                                  camundaService: CamundaService,
                                  botService: BotService,
                                  jsonService: JsonService,
@@ -60,16 +61,19 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
   private def handleExternalTask(externalTask: ExternalTask): ZIO[Any, Throwable, Unit] =
     for {
       botTask <- jsonService.fromJsonString[BotTask](externalTask.variables(botTaskTag).value)
-      _ <- botService.sendMessage(botTask)
+      chatId <- registerService.requestChat(botTask.chatUserOrGroup)
+      maybeRCs <- registerService.registerCallback(botTask)
+      _ <- botService.sendMessage(chatId, maybeRCs, botTask.msg)
       _ <- camundaService.completeTask(CompleteTask(externalTask.id, workerId, Map.empty))
     } yield ()
 
   onCallbackWithTag(CALLBACK_TAG) { implicit cbq => // listens on all callbacks that START with TAG
     runtime.unsafeRun((for {
-      _ <- botService.handleCallback(cbq, "processing...")
-      maybeRC <- botService.handleCallback(cbq)
+      _ <- botService.handleAnswerCallback(cbq, "processing...")
+      maybeRC <- registerService.requestCallback(cbq.data.getOrElse("---"))
+      _ <- botService.handleCallback(cbq, maybeRC)
       _ <- maybeRC.map { regCallback =>
-        val botTaskResult = BotTaskResult(regCallback.botTaskIdent, regCallback.callbackId, User(cbq.from))
+        val botTaskResult = BotTaskResult(regCallback.botTaskIdent, regCallback.callbackId, bot.User(cbq.from))
         for {
           json <- jsonService.toJson(botTaskResult)
           _ <- camundaService.signal(
@@ -77,7 +81,7 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
               Map("botTaskResult" -> Variable(json.toString)))
           )
         } yield ()
-      }.getOrElse(UIO.succeed())
+      }.getOrElse(ZIO.succeed("ok"))
 
     } yield ())
       .fold(t => logger.error("Problem on Callback", t), _ => info("Callback handled"))
@@ -86,24 +90,21 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
 
   onCommand('register) { implicit msg =>
     for {
-      result <- registerGroupOrUser(msg)
-      _ <- reply(s"Hello ${msg.from.map(_.firstName).getOrElse("")}!\n" + result)
-    } ()
+      result <- registerService.registerChat(maybeUserOrGroup(msg), msg.chat.id)
+      _ <- botService.handleReply(msg.source, s"Hello ${msg.from.map(_.firstName).getOrElse("")}!\n" + result)
+    } yield ()
   } // and reply with the personalized greeting
 
-  private def registerGroupOrUser(msg: Message) = {
-    (msg.chat.`type` match {
+  // Shut-down hook
+  private def maybeUserOrGroup(msg: Message) = {
+    msg.chat.`type` match {
       case ChatType.Private =>
         msg.chat.username
       case ChatType.Group =>
         msg.chat.title
-    }).map(botActor ? RegisterChatId(_, msg.chat.id))
-      .map(_ => "you were successful registered")
-      .getOrElse("Sorry, you need a Username to talk with me")
+    }
   }
 
-
-  // Shut-down hook
   cs.addTask(
     CoordinatedShutdown.PhaseServiceUnbind,
     "free-telegram-polling") { () =>

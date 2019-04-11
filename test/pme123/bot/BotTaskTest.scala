@@ -2,6 +2,7 @@ package pme123.bot
 
 import org.scalatest.FunSuite
 import play.api.libs.json.Json
+import pme123.bot.entity.bot._
 
 class BotTaskTest extends FunSuite {
 

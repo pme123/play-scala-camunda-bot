@@ -1,8 +1,9 @@
-package pme123.bot.camunda
+package pme123.bot.control
 
 import javax.inject.Inject
 import play.api.libs.json.{JsNull, JsValue, Json}
 import play.api.libs.ws.{WSAuthScheme, WSClient}
+import pme123.bot.entity.camunda._
 import scalaz.zio.{Task, ZIO}
 
 import scala.concurrent.ExecutionContext
