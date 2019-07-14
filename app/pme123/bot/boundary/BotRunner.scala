@@ -1,49 +1,33 @@
 package pme123.bot.boundary
 
 import akka.Done
-import akka.actor.{ActorSystem, CoordinatedShutdown}
+import akka.actor.CoordinatedShutdown
+import info.mukel.telegrambot4s.api.Polling
 import info.mukel.telegrambot4s.api.declarative.{Callbacks, Commands}
-import info.mukel.telegrambot4s.api.{Polling, RequestHandler, TelegramBot}
-import info.mukel.telegrambot4s.models.{ChatType, Message}
 import javax.inject.{Inject, Singleton}
-import play.api.Logging
 import pme123.bot.control._
 import pme123.bot.entity.bot
 import pme123.bot.entity.bot._
 import pme123.bot.entity.camunda._
-import scalaz.zio.{DefaultRuntime, ZIO}
+import scalaz.zio.ZIO
 
-import scala.concurrent.duration._
-import scala.io.Source
 
-class TelegramBoundary @Inject()(actorSystem: ActorSystem,
-                                 registerService: RegisterService,
-                                 camundaService: CamundaService,
-                                 botService: BotService,
-                                 jsonService: JsonService,
-                                 cs: CoordinatedShutdown,
-                                )
-  extends TelegramBot
+@Singleton
+class BotRunner @Inject()(
+                           registerService: RegisterService,
+                           camundaService: CamundaService,
+                           botService: BotService,
+                           jsonService: JsonService,
+                           cs: CoordinatedShutdown,
+                         )
+  extends CamundaBot
+    with UnsafeRunner
     with Polling
     with Callbacks
-    with Commands
-    with Logging {
+    with Commands {
 
-  private val runtime = new DefaultRuntime {}
-
-  lazy val botToken: String = scala.util.Properties
-    .envOrNone("BOT_TOKEN")
-    .getOrElse(Source.fromResource("bot.token").getLines().mkString)
-
-  lazy val token: String = botToken // the token is required by the Bot behavior
-  private val workerId = "camunda-bot-scheduler"
-  private val botTaskTag = "botTask"
-
-  override implicit val request: RequestHandler = super.request
-
-  actorSystem.scheduler.schedule(initialDelay = 1.seconds, interval = 1.seconds) {
-    run(fetchAndProcessTasks)
-  }
+  logger.info("initialized TelegramBoundary")
+  run()
 
   onCallbackWithTag(CALLBACK_TAG) { implicit cbq => // listens on all callbacks that START with TAG
     run {
@@ -85,41 +69,6 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
     }
   }
 
-  private def run(block: => ZIO[Any, Throwable, Any]): Unit =
-    runtime.unsafeRun(block.catchAll { t =>
-      logger.error("Exception running block", t)
-      ZIO.fail(t)
-    })
-
-  private def handleExternalTask(externalTask: ExternalTask): ZIO[Any, Throwable, Unit] =
-    for {
-      botTask <- jsonService.fromJsonString[BotTask](externalTask.variables(botTaskTag).value)
-      chatId <- registerService.requestChat(botTask.chatUserOrGroup)
-      maybeRCs <- registerService.registerCallback(botTask)
-      _ <- botService.sendMessage(chatId, maybeRCs, botTask.msg)
-      _ <- camundaService.completeTask(CompleteTask(externalTask.id, workerId, Map.empty))
-    } yield ()
-
-  private lazy val fetchAndProcessTasks: ZIO[Any, Throwable, Receipt] =
-    for {
-      externalTasks <- camundaService.fetchAndLock(FetchAndLock(workerId, List(Topic("pme.telegram.demo", Seq(botTaskTag)))))
-      receipts <- ZIO.foreachParN(5)(externalTasks)(task =>
-        handleExternalTask(task)
-          .fold(
-            t => Receipt.failure(task.id, t),
-            _ => Receipt.success(task.id)
-          ))
-    } yield receipts.foldLeft(Receipt.empty)(_ |+| _)
-
-  private def maybeUserOrGroup(msg: Message) = {
-    msg.chat.`type` match {
-      case ChatType.Private =>
-        msg.chat.username
-      case ChatType.Group =>
-        msg.chat.title
-    }
-  }
-
   // Shut-down hook
   cs.addTask(
     CoordinatedShutdown.PhaseServiceUnbind,
@@ -127,11 +76,4 @@ class TelegramBoundary @Inject()(actorSystem: ActorSystem,
     shutdown()
       .map(_ => Done)
   }
-}
-
-@Singleton
-class BotRunner @Inject()(telegramBot: TelegramBoundary)
-  extends Logging {
-  logger.info("initialized TelegramBoundary")
-  telegramBot.run()
 }
