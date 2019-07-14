@@ -15,6 +15,12 @@ class RegisterService @Inject()(@Named("bot-actor") botActor: ActorRef) {
       botActor ? RegisterChatId(maybeId, chatId)
     }
 
+  def myTasks(maybeId: Option[ChatUserOrGroup], chatId: ChatId): Task[Seq[String]] =
+    ZIO.fromFuture { implicit ec =>
+      println(s"maybeIdmaybeId: $maybeId")
+      (botActor ? OpenTasksRequest(maybeId)).mapTo[Seq[String]]
+    }
+
   def requestChat(chatUserOrGroup: ChatUserOrGroup): Task[ChatId] =
     ZIO.fromFuture { implicit ec =>
       (botActor ? RequestChatId(chatUserOrGroup)).mapTo[ChatId]

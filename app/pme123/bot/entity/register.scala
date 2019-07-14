@@ -8,12 +8,16 @@ object register {
 
   case class RequestChatId(chatUserOrGroup: ChatUserOrGroup)
 
-  case class RegisterCallback(botTaskIdent: String, callback: Callback)
+  case class RegisterCallback(botTaskIdent: String, userId: String, callback: Callback)
+
+  case class OpenTasksRequest(maybeId: Option[ChatUserOrGroup])
+
+  case class OpenTasks(maybeId: Option[ChatUserOrGroup], chatId: ChatId)
 
   object RegisterCallback {
     def apply(botTask: BotTask): Option[RegisterCallback] = {
       botTask.maybeCallback.map(callback =>
-        RegisterCallback(botTask.ident, callback)
+        RegisterCallback(botTask.ident, botTask.chatUserOrGroup, callback)
       )
     }
   }
