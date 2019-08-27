@@ -29,15 +29,6 @@ class CamundaRunner @Inject()(actorSystem: ActorSystem,
     run(fetchAndProcessTasks)
   }
 
-  private def handleExternalTask(externalTask: ExternalTask): ZIO[Any, Throwable, Unit] =
-    for {
-      botTask <- jsonService.fromJsonString[BotTask](externalTask.variables(botTaskTag).value)
-      chatId <- registerService.requestChat(botTask.chatUserOrGroup)
-      maybeRCs <- registerService.registerCallback(botTask)
-      _ <- botService.sendMessage(chatId, maybeRCs, botTask.msg)
-      _ <- camundaService.completeTask(CompleteTask(externalTask.id, workerId, Map.empty))
-    } yield ()
-
   private lazy val fetchAndProcessTasks: ZIO[Any, Throwable, Receipt] =
     for {
       externalTasks <- camundaService.fetchAndLock(FetchAndLock(workerId, List(Topic("pme.telegram.demo", Seq(botTaskTag)))))
@@ -49,5 +40,12 @@ class CamundaRunner @Inject()(actorSystem: ActorSystem,
           ))
     } yield receipts.foldLeft(Receipt.empty)(_ |+| _)
 
-
+  private def handleExternalTask(externalTask: ExternalTask): ZIO[Any, Throwable, Unit] =
+    for {
+      botTask <- jsonService.fromJsonString[BotTask](externalTask.variables(botTaskTag).value)
+      chatId <- registerService.requestChat(botTask.chatUserOrGroup)
+      maybeRCs <- registerService.registerCallback(botTask)
+      _ <- botService.sendMessage(chatId, maybeRCs, botTask.msg)
+      _ <- camundaService.completeTask(CompleteTask(externalTask.id, workerId, Map.empty))
+    } yield ()
 }

@@ -13,6 +13,7 @@ libraryDependencies ++= Seq(
   "info.mukel" %% "telegrambot4s" % "3.0.16",
   "org.scalatra.scalate" %% "scalate-core" % "1.9.1",
   "org.scalaz" %% "scalaz-zio" % "0.18",
+  "com.typesafe.akka" %% "akka-http" % "10.1.8",
   "org.scalatestplus.play" %% "scalatestplus-play" % "4.0.1" % Test,
 )
 

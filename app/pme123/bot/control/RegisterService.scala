@@ -8,7 +8,6 @@ import pme123.bot.entity.register._
 import scalaz.zio.{Task, ZIO}
 
 class RegisterService @Inject()(@Named("bot-actor") botActor: ActorRef) {
-  val camundaUrl = "http://localhost:8080/engine-rest"
 
   def registerChat(maybeId: Option[ChatUserOrGroup], chatId: ChatId): Task[Any] =
     ZIO.fromFuture { implicit ec =>

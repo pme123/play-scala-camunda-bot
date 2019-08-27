@@ -10,7 +10,7 @@ import scala.concurrent.ExecutionContext
 
 class CamundaService @Inject()(ws: WSClient)
                               (implicit ec: ExecutionContext) {
-  val camundaUrl = "http://localhost:8080/engine-rest"
+  val camundaUrl = "http://localhost:8082/engine-rest"
 
   def fetchAndLock(fetchAndLock: FetchAndLock): Task[Seq[ExternalTask]] =
     post("external-task/fetchAndLock", Json.toJson(fetchAndLock))
